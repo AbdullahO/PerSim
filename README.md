@@ -5,9 +5,9 @@ This is the code accompaying the paper submission **PerSim: Data-Efficient Offli
 
 ## Requirements
 
-`python >3.6`
-`Mujoco-py ` and its [prerequisites](https://github.com/openai/mujoco-py#obtaining-the-binaries-and-license-key). 
-python packages in `requirements.txt`
+*`python >3.6`
+*`Mujoco-py ` and its [prerequisites](https://github.com/openai/mujoco-py#obtaining-the-binaries-and-license-key). 
+* python packages in `requirements.txt`
 
 ## Datasets
 
