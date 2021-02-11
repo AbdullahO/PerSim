@@ -12,6 +12,7 @@ This is the code accompaying the paper submission **PerSim: Data-Efficient Offli
 ## Datasets
 
 We provide the offline datasets we performed the experiments on. The datasets can be downloaded via running `data.sh` through:
+	
 	`bash data.sh`
 
 
