@@ -22,4 +22,4 @@ To run PerSim, run the following script:
 
 	`python3 runner.py --env {env} --dataname {dataname}`
 
-Choose env from {`mountainCar`, `cartPole`, `halfCheetah`}, and dataname from the available datasets in the `datasets` directory. e.g., `cartPole_pure_0.0_0`
+Choose env from {`mountainCar`, `cartPole`, `halfCheetah`}, and dataname from the available datasets in the `datasets` directory. e.g., `cartPole_pure_0.0_0`.
