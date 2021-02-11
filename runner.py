@@ -348,8 +348,8 @@ parser.add_argument('--normalize_output', dest = 'normalize_output',  action='st
 parser.add_argument('--no_normalize_state', dest = 'normalize_state',  action='store_false')
 parser.add_argument('--no_normalize_output', dest = 'normalize_output',  action='store_false')
 parser.add_argument('--num_episodes', type=int, default=200, help='gpu device id')
-parser.add_argument('--num_mpc_evals', type=int, default=1, help='number of MPC episodes')
-parser.add_argument('--num_simulators', type=int, default=1, help='number of models')
+parser.add_argument('--num_mpc_evals', type=int, default=20, help='number of MPC episodes')
+parser.add_argument('--num_simulators', type=int, default=5, help='number of models')
 
 
 parser.set_defaults(delta=True)
@@ -369,12 +369,21 @@ delta = 'delta' if args.delta else 'no_delta'
 simulators = []
 # train and test simulators
 for i in range(args.num_simulators):
+  print('=='*10)
+  print(f'Train the {i}-th simulator')
+  print('=='*10)
   filename = f'{args.dataname}_{args.lag}_{args.r}_{delta}_{i}_{args.trial}'
-  train(args.dataname, args.env, args.r, device, normalize_state = args.normalize_state, normalize_output = args.normalize_output, iterations = 3, filename = filename)
+  train(args.dataname, args.env, args.r, device, normalize_state = args.normalize_state, normalize_output = args.normalize_output, iterations = 300, filename = filename)
   # test simulators prediction accuracy
+  print('=='*10)
+  print(f'Test the prediction error for the {i}-th simulator')
+  print('=='*10)
   test_simulator(filename, args.env, device, args.num_episodes, T = 50)
   simulators.append(filename)
 
+print('=='*10)
+print(f'Evaluate Average Reward via MPC')
+print('=='*10)
 eval_policy(simulators, args.env, args.num_mpc_evals, device)
 # Estimate average reward
 

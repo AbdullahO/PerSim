@@ -1,4 +1,4 @@
-from envs import CartPoleEnv, MountainCarEnv#, AntEnv, HalfCheetahEnv
+from envs import CartPoleEnv, MountainCarEnv, HalfCheetahEnv
 
 def get_environment_config(env):
     config = {"env":env}
@@ -29,8 +29,7 @@ def get_environment_config(env):
         config['number_of_units'] = 500
         config['env'] = MountainCarEnv
         config['no_trajectories'] = 1
-        """ 
-
+     
     elif config['env'] == 'halfCheetah':
         train_mass_scale_set = [0.2,1.8] # test 0.2, ,1.0, 1.8
         train_damping_scale_set = [0.2,1.8] # test 0.2, ,1.0, 1.8
@@ -45,20 +44,6 @@ def get_environment_config(env):
         config['env'] = HalfCheetahEnv
         config['no_trajectories'] = 1
         
-    elif config['env'] == 'ant':
-        train_mass_scale_set = [0.4, 1.0]
-        config['covariates'] = ['mass_scale_set']
-        config['env_default'] = [1.0]
-        config['train_env_range'] = [train_mass_scale_set]
-        config['test_env'] = [[0.4],[0.55],[0.7],[0.85],[1.0]]
-        config['train_policy'] = [[0.475],[0.625],[0.775],[0.925]]
-        config['trajectory_length'] = 1000
-        config['number_of_test_rollouts'] = 200
-        config['number_of_units'] = 500
-        config['env'] = AntEnv
-        config['no_trajectories'] = 1
-        
-        """ 
     else:
         raise ValueError('Choose from available envs {"slimHumanoid", "ant", "halfCheetah", "mountainCar", "cartPole"}, refer to envs/config.py') 
 

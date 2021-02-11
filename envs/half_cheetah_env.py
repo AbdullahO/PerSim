@@ -109,7 +109,7 @@ class HalfCheetahEnv(mujoco_env.MujocoEnv, utils.EzPickle):
     
     def torch_done_fn(self):
         def _thunk(next_obs):
-            done =  torch.zeros(next_obs.shape[0])
+            done =  torch.zeros(next_obs.shape[0], device = next_obs.device)
             return done
         return _thunk
 
