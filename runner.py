@@ -73,7 +73,6 @@ def test_simulator(simulator_name, env_name, device, num_episodes, T = 50):
     delta = simulator_name.split('_')[6][:5] == 'delta'
     sim = Simulator(N, action_dim, state_dim, rank, device, lags= lag, continous_action = not discerte_action, state_layers = state_layers[env_name], action_layers = action_layers[env_name], delta = delta)
 
-    print(rank, lag, delta)
     sim.load(f'simulator/trained/{simulator_name}')
 
     # load policy
@@ -97,7 +96,6 @@ def test_simulator(simulator_name, env_name, device, num_episodes, T = 50):
         parameters = dict(zip(env_config['covariates'],unit))
         state_true = np.zeros([n_episodes, state_dim, T+1])
         state_sim = torch.zeros([n_episodes, state_dim, T+1]).to(device)
-        print(parameters)
         for i_episode in tqdm(range(n_episodes)):           
             env_ = env(**parameters)
             actions = np.zeros(T+1)
@@ -138,6 +136,7 @@ def test_simulator(simulator_name, env_name, device, num_episodes, T = 50):
         
         data.append([j,np.mean(MSE),np.std(MSE), np.mean(r2),np.median(r2), ])
     data = pd.DataFrame(data, columns = ['agent', 'mean', 'std', 'r2_score_mean', 'r2_score_median'])
+    print('prediction error results:')
     print(data)
     data.to_csv(f'simulator/results/{simulator_name}_mse_results.csv')
 
@@ -288,12 +287,12 @@ def eval_policy(simulators_, env_name, num_evaluations, device):
             if mountainCar and terminal_reward < mpc._rollout_function._time_horizon -5:
                mpc._rollout_function._time_horizon = int(terminal_reward.item())+5
             
-            if i%10 ==0 :
-                print(k, sum_reward, i, reward)
+            if i%50 ==0 :
+                print(f"Reward so far for agent {tt} ,  timestep {i} ,  {k}-th episode: {sum_reward}")
             i+=1
             if done:
                 i = 0
-                print(tt,k, sum_reward)
+                print(f"Reward for agent {tt} in the {k}-th episode: {sum_reward}")
                 observation = env.reset()
                 k+=1
                 res[j,:] = [k, tt, sum_reward ]
