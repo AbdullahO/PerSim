@@ -6,7 +6,6 @@ import torch.nn.functional as F
 from utils import evaluate_policy
 from envs.config import get_environment_config
 import sys
-import yaml
 
 # Implementation of Twin Delayed Deep Deterministic Policy Gradients (TD3)
 # Paper: https://arxiv.org/abs/1802.09477    

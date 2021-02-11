@@ -6,7 +6,6 @@ import torch.nn.functional as F
 from tqdm import tqdm
 import gym
 import sys
-import yaml
 import copy
 import collections
 from envs.config import get_environment_config
