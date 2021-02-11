@@ -1,6 +1,5 @@
 import numpy as np
 import os
-import tensorflow as tf
 from gym import utils
 from gym.envs.mujoco import mujoco_env
 import torch 
