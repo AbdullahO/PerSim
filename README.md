@@ -20,6 +20,7 @@ We provide the offline datasets we performed the experiments on. The datasets ca
 
 To run PerSim, run the following script:
 
-	`python3 runner.py --env {env} --dataname {dataname}`
+	`python3 runner.py --env {env} --dataname {dataname} --r {rank}`
 
-Choose env from {`mountainCar`, `cartPole`, `halfCheetah`}, and dataname from the available datasets in the `datasets` directory. e.g., `cartPole_pure_0.0_0`.
+Choose env from {`mountainCar`, `cartPole`, `halfCheetah`}, and dataname from the available datasets in the `datasets` directory. e.g., `cartPole_pure_0.0_0`. Best values for r is 3,5,20 for mountainCar, cartPole, and halfCheetah respectively.
+
