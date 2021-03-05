@@ -48,6 +48,7 @@ class RolloutFunction:
         self.num_actions = num_actions
         self.max_action = max_action
         self.mountain_car = mountain_car
+    
     def perform_rollouts(self, args: Tuple[Tensor, Tensor, Tensor]) -> Rollouts:
         """Samples a trajectory, and returns the trajectory and the cost.
 
@@ -56,9 +57,9 @@ class RolloutFunction:
         """
         initial_state, means, stds = args
         initial_states = initial_state.repeat((self._num_rollouts, 1))
-        trajectories, actions, objective_costs, next_costs= self._sample_trajectory(initial_states, means, stds)
+        trajectories, actions, objective_costs= self._sample_trajectory(initial_states, means, stds)
         
-        return Rollouts(trajectories, actions, objective_costs), next_costs
+        return Rollouts(trajectories, actions, objective_costs)
 
     def perform_rollouts_disceret(self, initial_state: Tensor, previous_action ) -> Rollouts:
         """Samples a trajectory, and returns the trajectory and the cost.
@@ -108,11 +109,10 @@ class RolloutFunction:
                 dones[:] =  torch.maximum(done,dones[:])
                 objective_costs[t,:] = (gamma)**t*costs*(1-dones[:]) #+ dones[d,:]*100 
 
-        next_costs= objective_costs[0,:].clone()
         objective_costs = torch.sum(objective_costs,0)
 
-        return trajectories[:,:,:], actions, objective_costs#, next_costs
-
+        return trajectories[:,:,:], actions, objective_costs
+        
     def _sample_trajectory_disceret(self, initial_states: Tensor, previous_action ) -> Tuple[Tensor, Tensor, Tensor]:
             """Randomly samples T actions and computes the trajectory.
 

@@ -410,7 +410,7 @@ def eval_policy(simulators_, env_name, num_evaluations, device):
 
 action_layers = {'mountainCar':[50], 'cartPole':[50], 'halfCheetah':[256,256], 'ant':[256,256]}
 batch_size = {'mountainCar':128, 'cartPole':128, 'halfCheetah':512}
-state_layers = {'mountainCar':[256], 'cartPole':[256], 'halfCheetah':[256,512,512], 'ant':[256,512,512]}
+state_layers = {'mountainCar':[256], 'cartPole':[256], 'halfCheetah':[256,256,256,256], 'ant':[256,512,512]}
 policy_class = {'mountainCar':'DQN', 'cartPole':'DQN', 'halfCheetah':'TD3', 'slimHumanoid':'TD3', 'ant':'TD3'}
 mpc_parameters = { 'mountainCar':
 {
