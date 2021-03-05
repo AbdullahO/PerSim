@@ -43,15 +43,7 @@ class Dynamics(DynamicsFunc):
 
     def step(self, states: Tensor, actions: Tensor) -> Tuple[Tensor, Tensor]:
 
-        #u = torch.zeros(states.shape[0], self.N, device = self.device)
-        #u[:,self.unit] = 1
-        #if not self.sim.continous_action:
-        #    action_ = torch.zeros([actions.shape[0],self.sim.action_d]).to(self.device)
-        #    # print(actions)
-        #    action_[torch.arange(actions.shape[0]),actions] =  1
-        #    # print(action_.shape)
-        #else:
-        #    action_ = torch.tensor(actions).to(self.device)
+
         if len(actions.shape) == 1:
             actions = actions.reshape(-1,1)
         
@@ -239,8 +231,6 @@ def test_simulators_ens(simulators, env_name, device, num_episodes, T = 50):
             r2_ = r2_score(state_true[i_episode,:,:i].T, state_sim_m[:,:i].cpu().detach().numpy().T , multioutput = 'variance_weighted')
             r2.append(r2_)
             MSE.append(mse)
-        #plot(state_true, state_sim, 0)
-        # np.save(f'trajectories/{args.env}/{args.simulator}_unit_{k}.npy',[state_sim, state_true])
         data.append([k,np.mean(MSE),np.std(MSE), np.mean(r2),np.median(r2), ])
         MSE_all[k,0,:] = MSE
         MSE_all[k,1,:] = r2
@@ -363,7 +353,7 @@ def eval_policy(simulators_, env_name, num_evaluations, device):
         env = env_config['env'](**parameters)
         th =  mpc_parameters[env_name]['time_horizon']
         num_rollouts = mpc_parameters[env_name]['num_rollouts']
-        num_elites = 10
+        num_elites = 50
         num_iterations = 5
         max_action = mpc_parameters[env_name]['max_action']
         mountainCar = env_name == 'mountainCar'
@@ -406,7 +396,8 @@ def eval_policy(simulators_, env_name, num_evaluations, device):
                 j+=1
                 sum_reward = 0
                 mpc = MPC_M(dynamics_func=simulator, state_dimen=state_dimension, action_dimen=action_dimension,
-                            time_horizon=th, num_rollouts=num_rollouts, num_elites=num_elites, num_iterations=num_iterations, disceret_action = discerte_action, max_action = max_action, mountain_car = mountainCar)
+                            time_horizon=th, num_rollouts=num_rollouts, num_elites=num_elites, 
+                            num_iterations=num_iterations, disceret_action = discerte_action, max_action = max_action, mountain_car = mountainCar)
 
 
         env.close()

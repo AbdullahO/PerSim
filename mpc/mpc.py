@@ -85,8 +85,14 @@ class RolloutFunction:
         actions = Normal(means, stds).sample(sample_shape=(self._num_rollouts,))
         # assert_shape(actions, (self._num_rollouts, self._time_horizon, self._action_dimen))
         if self.max_action is not None:
+            #actions_max = torch.max(torch.max(actions,1)[0],1)[0]
+            indices = torch.abs(actions)>self.max_action
+            while indices.sum()>0:
+                actions[indices] = Normal(means, stds).sample(sample_shape=(self._num_rollouts,))[indices]
+                indices = torch.abs(actions)>self.max_action
+            # not needed# 
             actions = actions.clip(-self.max_action, self.max_action)
-    
+
         # One more state than the time horizon because of the initial state.
         trajectories = torch.empty((self._num_rollouts, self._time_horizon + 1, self._state_dimen),
                                    device=initial_states.device)
@@ -126,8 +132,6 @@ class RolloutFunction:
             dones = torch.zeros((self._num_rollouts,), device=initial_states.device)
 
             for t in range(self._time_horizon):
-                #for d,dynamic in enumerate(self._dynamics):
-
                     next_states, costs, done = self._dynamics.step(trajectories[:, t, :], actions[:, t, 0])
 
                     # assert_shape(next_states, (self._num_rollouts, self._state_dimen))
@@ -135,15 +139,12 @@ class RolloutFunction:
                     
                     trajectories[ :, t + 1, :] = next_states
                     dones[:] =  torch.maximum(done,dones[:])
-                    #print(dones[d,:], d, t)
-                    # TODO: worry about underflow.
                     objective_costs[t,:] = (gamma)**t*costs*(1-dones[:])
     
             
             if self.mountain_car:
                 objective_costs = objective_costs - 0.01*torch.max(trajectories[:,:,0],1)[0]
             
-            # objective_costs = torch.mean(objective_costs,1)#[0]
             objective_costs = torch.sum(objective_costs,0)
             
             return trajectories, actions, objective_costs
@@ -207,12 +208,13 @@ class MPC_M:
                 
         else:
             #######################
-            #perform CEM#
+            # Perform CEM #
             #######################
-            self.mean = torch.zeros((self._time_horizon, self._action_dimen), device=initial_state.device)
+            if self.mean is None:
+                self.mean = torch.zeros((self._time_horizon, self._action_dimen), device=initial_state.device)
             
             means = self.mean
-            init_stds = (1/3)*torch.ones((self._time_horizon, self._action_dimen), device=initial_state.device)
+            init_stds = (1/2)*torch.ones((self._time_horizon, self._action_dimen), device=initial_state.device)
             stds = init_stds.clone()
             rollouts_by_iteration = []
             lower_bound = -self.max_action
@@ -221,7 +223,8 @@ class MPC_M:
                 rollouts = self._rollout_function.perform_rollouts((initial_state, means, stds))
                 elite_rollouts = self._select_elites(rollouts)
                 means = elite_rollouts.actions.mean(dim=0)
-                    
+                stds = elite_rollouts.actions.std(dim=0)
+               
             return elite_rollouts 
 
     def _select_elites(self, rollouts: Rollouts) -> Rollouts:
@@ -255,6 +258,8 @@ class MPC_M:
         action = actions[best_rollout_id]
         if not self.disceret_action:  
             action = actions.mean(0)
+            self.mean[:-1,:] = action[1:,:]
+            self.mean[-1:,:] = 0
         else:
             self.previous_action = actions[best_rollout_id]
         
