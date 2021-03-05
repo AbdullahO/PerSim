@@ -20,19 +20,23 @@ class Dynamics(DynamicsFunc):
 
     For this demo we assume we know the exact dynamics. These are taken from the Pendulum-v0 environment in OpenAI Gym.
     """
-    def __init__(self, sim, env, discerte_action, N, unit, device ) -> Tuple[Tensor, Tensor]:
+    def __init__(self, sims, env, discerte_action, N, unit, device ) -> Tuple[Tensor, Tensor]:
         self.env = env
-
+        self.sims = []
         if discerte_action:  action_dim = self.env.action_space.n
         else: action_dim = self.env.action_space.shape[0]
         state_dim = self.env.observation_space.shape[0]
-        env_name = sim.split('_')[0]
-        rank = int(sim.split('_')[5])
-        lag = int(sim.split('_')[4])
-        delta = sim.split('_')[6][:5] == 'delta'
-        self.delta = delta
-        self.sim = Simulator(N, action_dim, state_dim,rank , device, lags= lag, state_layers = state_layers[env_name], action_layers = action_layers[env_name], continous_action = not discerte_action, delta = delta)
-        self.sim.load(f'simulator/trained/{sim}')
+        for sim in sims:
+            env_name = sim.split('_')[0]
+            rank = int(sim.split('_')[5])
+            lag = int(sim.split('_')[4])
+            delta = sim.split('_')[6][:5] == 'delta'
+            print(env_name, rank, lag, delta)
+            self.delta = delta
+            print(state_dim, action_dim, N,N+action_dim+state_dim)
+            self.sim_ = Simulator(N, action_dim, state_dim,rank , device, lags= lag, state_layers = state_layers[env_name], action_layers = action_layers[env_name], continous_action = not discerte_action, delta = delta)
+            self.sim_.load(f'simulator/trained/{sim}')
+            self.sims.append(self.sim_)
         self.N = N
         self.reward_fun = self.env.torch_reward_fn()
         self.done_fn = self.env.torch_done_fn()
@@ -41,15 +45,26 @@ class Dynamics(DynamicsFunc):
 
     def step(self, states: Tensor, actions: Tensor) -> Tuple[Tensor, Tensor]:
 
+        #u = torch.zeros(states.shape[0], self.N, device = self.device)
+        #u[:,self.unit] = 1
+        #if not self.sim.continous_action:
+        #    action_ = torch.zeros([actions.shape[0],self.sim.action_d]).to(self.device)
+        #    # print(actions)
+        #    action_[torch.arange(actions.shape[0]),actions] =  1
+        #    # print(action_.shape)
+        #else:
+        #    action_ = torch.tensor(actions).to(self.device)
         if len(actions.shape) == 1:
             actions = actions.reshape(-1,1)
-        next_states = self.sim.step(states, actions, self.unit)[0]
-
+        
+        next_states = self.sims[0].step(states, actions, self.unit)[0]
+        for sim in self.sims[1:]:
+            next_states += sim.step(states, actions, self.unit)[0]
+        next_states = next_states/len(self.sims)
         # print(states.shape, next_states.shape)
         objective_cost = -1*self.reward_fun(states, actions, next_states)
         dones = self.done_fn(next_states) #torch.zeros(states.shape[0], device = self.device)
         return next_states, objective_cost, dones 
-
 
 
 def test_simulator(simulator_name, env_name, device, num_episodes, T = 50):
@@ -141,6 +156,101 @@ def test_simulator(simulator_name, env_name, device, num_episodes, T = 50):
     data.to_csv(f'simulator/results/{simulator_name}_mse_results.csv')
 
 
+def test_simulators_ens(simulators, env_name, device, num_episodes, T = 50):
+    if env_name in discerte_action_envs:
+      discerte_action = True
+    else:
+      discerte_action = False
+
+    # load env_name
+    env_config = get_environment_config(env_name)
+    N = env_config['number_of_units']
+    env = env_config['env']
+    
+    if discerte_action:  action_dim = env().action_space.n
+    else: action_dim = env().action_space.shape[0]
+
+    state_dim = env().observation_space.shape[0]
+    # load policy
+    policy_name = f'{env_name}_{policy_class[env_name]}_test'
+    policy = load_policy(env(), 'policies',policy_name , policy_class[env_name], device)
+    sims  = []
+    for simulator_name in simulators:
+      rank = int(simulator_name.split('_')[5])
+      lag = int(simulator_name.split('_')[4])
+      delta = simulator_name.split('_')[6][:5] == 'delta'
+      sim = Simulator(N, action_dim, state_dim, rank, device, lags= lag, continous_action = not discerte_action, state_layers = state_layers[env_name], action_layers = action_layers[env_name], delta = delta)
+      sim.load(f'simulator/trained/{simulator_name}')
+      sims.append(sim)
+      
+    # init parameters
+    n_episodes = num_episodes
+    test_covaraites  =   env_config['test_env']
+    n_t = len(test_covaraites)
+    data = []
+    # init trajecotry storage
+    indices = np.arange(5)
+    MSE_all = np.zeros([len(indices), 2, n_episodes])
+    for k, unit in zip(indices,test_covaraites[:]):   
+        MSE =[]
+        r2 =[] 
+        parameters = dict(zip(env_config['covariates'],unit))
+        state_true = np.zeros([n_episodes, state_dim, T+1])
+        state_sim = torch.zeros([n_episodes, len(sims), state_dim, T+1]).to(device)
+        print(parameters)
+        for i_episode in tqdm(range(n_episodes)):           
+            env_ = env(**parameters)
+            actions = np.zeros(T+1)
+            total_reward = 0
+            observation = env_.reset()
+            done = False
+            i = 0
+            state_sim[i_episode, :, :,i] = torch.tensor(observation).float().reshape(1,-1).to(device)
+            state_true[i_episode, :,i] = observation
+            i+=1
+            while i <T+1:
+                # random action
+                # action = env_.action_space.sample()
+                # test policy action
+                action = policy.select_action(np.array(observation))
+                old_x0 = observation
+                #action = torch.tensor([action]).reshape(1,-1).to(device)
+                if not done:
+                  observation, _, done,_ = env_.step(action)
+                  state_true[i_episode,:,i] = observation
+                  action = torch.tensor([action]).reshape(1,-1).to(device)
+                  for s, sim in enumerate(sims):
+                    if i > 0:
+                        old_x0 = state_sim[i_episode, s, :,i-1].reshape(1,-1)
+                    elif s == 0:
+                        old_x0 = torch.tensor(old_x0).float().reshape(1,-1).to(device)
+                    #action = torch.tensor([action]).reshape(1,-1).to(device)
+                    predicted_state = sim.step(old_x0, action,k)[0] 
+                    state_sim[i_episode, s, :,i] = predicted_state
+                  
+                  i +=1
+
+                else:
+                  state_sim[i_episode,:,:,i:] = np.nan
+                  state_true[i_episode,:,i:]  = np.nan
+                  break
+            
+            state_sim_m = state_sim[i_episode,:,:,:].mean(axis = 0)
+            #print(state_sim_m.shape)
+            mse = np.sqrt(np.nanmean(np.square(state_sim_m[:,:].cpu().detach().numpy() - state_true[i_episode,:,:])))
+            r2_ = r2_score(state_true[i_episode,:,:i].T, state_sim_m[:,:i].cpu().detach().numpy().T , multioutput = 'variance_weighted')
+            r2.append(r2_)
+            MSE.append(mse)
+        #plot(state_true, state_sim, 0)
+        # np.save(f'trajectories/{args.env}/{args.simulator}_unit_{k}.npy',[state_sim, state_true])
+        data.append([k,np.mean(MSE),np.std(MSE), np.mean(r2),np.median(r2), ])
+        MSE_all[k,0,:] = MSE
+        MSE_all[k,1,:] = r2
+    data = pd.DataFrame(data, columns = ['agent', 'mean', 'std', 'r2_score_mean', 'r2_score_median'])
+    print(data)
+    data.to_csv(f'simulator/results/{simulator_name}_mse_results_ens.csv')
+    np.save(f'simulator/results/{simulator_name}_metrics.npy',MSE_all)
+
 
 
 def format_data(data, number_of_units, device, delta, discerte_action, action_dim, lags = 1):
@@ -186,7 +296,6 @@ def format_data(data, number_of_units, device, delta, discerte_action, action_di
   I = torch.from_numpy(I).float()
   M = torch.from_numpy(M).float()
   Y = torch.from_numpy(Y).float()
-
   return U.to(device), I.to(device), M.to(device), Y.to(device)
 
 
@@ -231,7 +340,7 @@ def train(dataname,env, rank, device, delta = True, normalize_state = True, norm
       filename = f'{dataname}_{lag}_{rank}_{delta}'
 
     ## train  simulator
-    sim = Simulator(N, action_dim, state_dim, rank, device, lags= lag, continous_action = not discerte_action, means_state = means_state, stds_state = stds_state,means = means, stds = stds, delta =delta, state_layers = state_layers[env], action_layers = action_layers[env])
+    sim = Simulator(N, action_dim, state_dim, rank, device, lags= lag, continous_action = not discerte_action, means_state = means_state, stds_state = stds_state,means = means, stds = stds, delta =delta, state_layers = state_layers[env], action_layers = action_layers[env], batch_size = batch_size[env])
     sim.train([u_data, i_data, m_data[:,:state_dim*lag], y_data], it=iterations, learning_rate = 5e-3)
     sim.save(f'simulator/trained/{filename}')
     
@@ -256,13 +365,13 @@ def eval_policy(simulators_, env_name, num_evaluations, device):
         env = env_config['env'](**parameters)
         th =  mpc_parameters[env_name]['time_horizon']
         num_rollouts = mpc_parameters[env_name]['num_rollouts']
-        num_elites = 20
-        num_iterations = 10
+        num_elites = 10
+        num_iterations = 5
         max_action = mpc_parameters[env_name]['max_action']
         mountainCar = env_name == 'mountainCar'
         
-        simulators = [Dynamics(sim, env, discerte_action,N, tt, device) for sim in simulators_]
-        mpc = MPC_M(dynamics_func=simulators, state_dimen=state_dimension, action_dimen=action_dimension,
+        simulator = Dynamics(simulators_, env, discerte_action,N, tt, device)
+        mpc = MPC_M(dynamics_func=simulator, state_dimen=state_dimension, action_dimen=action_dimension,
                             time_horizon=th, num_rollouts=num_rollouts, num_elites=num_elites, 
                             num_iterations=num_iterations, disceret_action = discerte_action, mountain_car = mountainCar, max_action = max_action)
         
@@ -298,7 +407,7 @@ def eval_policy(simulators_, env_name, num_evaluations, device):
                 res[j,:] = [k, tt, sum_reward ]
                 j+=1
                 sum_reward = 0
-                mpc = MPC_M(dynamics_func=simulators, state_dimen=state_dimension, action_dimen=action_dimension,
+                mpc = MPC_M(dynamics_func=simulator, state_dimen=state_dimension, action_dimen=action_dimension,
                             time_horizon=th, num_rollouts=num_rollouts, num_elites=num_elites, num_iterations=num_iterations, disceret_action = discerte_action, max_action = max_action, mountain_car = mountainCar)
 
 
@@ -311,6 +420,7 @@ def eval_policy(simulators_, env_name, num_evaluations, device):
 ##### Fixed Parameters ####
 
 action_layers = {'mountainCar':[50], 'cartPole':[50], 'halfCheetah':[256,256], 'ant':[256,256]}
+batch_size = {'mountainCar':[128], 'cartPole':[128], 'halfCheetah':[512]}
 state_layers = {'mountainCar':[256], 'cartPole':[256], 'halfCheetah':[256,512,512], 'ant':[256,512,512]}
 policy_class = {'mountainCar':'DQN', 'cartPole':'DQN', 'halfCheetah':'TD3', 'slimHumanoid':'TD3', 'ant':'TD3'}
 mpc_parameters = { 'mountainCar':
@@ -374,12 +484,14 @@ for i in range(args.num_simulators):
   print('=='*10)
   filename = f'{args.dataname}_{args.lag}_{args.r}_{delta}_{i}_{args.trial}'
   train(args.dataname, args.env, args.r, device, normalize_state = args.normalize_state, normalize_output = args.normalize_output, iterations = 300, filename = filename)
-  # test simulators prediction accuracy
-  print('=='*10)
-  print(f'Test the prediction error for the {i}-th simulator')
-  print('=='*10)
-  test_simulator(filename, args.env, device, args.num_episodes, T = 50)
   simulators.append(filename)
+
+
+# test simulators prediction accuracy
+print('=='*10)
+print(f'Test the prediction error for simulators')
+print('=='*10)
+test_simulators_ens(simulators, args.env, device, args.num_episodes, T = 50)
 
 print('=='*10)
 print(f'Evaluate Average Reward via MPC')

@@ -133,7 +133,7 @@ class Simulator(Env):
     #     self.state[0,self.state_d:] = old_state[0,:-self.state_d]
     #     self.state[0,:self.state_d] = torch.tensor(state)
 
-    def train(self, data, learning_rate=1e-3, it=300):
+    def train(self, data, learning_rate=1e-2, it=400):
         # Parameters
         params = {'batch_size': self.batch_size,
                   'shuffle': self.shuffle}
@@ -167,8 +167,14 @@ class Simulator(Env):
                 optimizer.step()
             if (t+1)% 50 == 0:
               for g in optimizer.param_groups:
-                  g['lr'] = 0.5*g['lr']
-
+                  g['lr'] = 0.3*g['lr']
+            if t % 10== 0:
+                    u_data, i_data,m_data, y_data = data
+                    y_data = (y_data -self.model.means)/self.model.stds
+                    y_pred = self.model((u_data[:10000], i_data[:10000], m_data[:10000]))
+                    # Compute and print loss
+                    loss = loss_fn(y_pred, y_data[:10000])
+                    print(t, loss.item())
 
                   
     def save(self,save_path):
@@ -182,4 +188,132 @@ class Simulator(Env):
         # return sim 
         self.model.load_state_dict(torch.load(f'{load_path}.pkl', map_location=self.device))
             
+
+
+
+class Simulator_net_NF(torch.nn.Module):
+    def __init__(self, d_u, d_i,d_m,lags = 1,  continous_action = True, means = 0, stds = 1):
+        super(Simulator_net_NF, self).__init__()
+        no_inputs = d_u + d_i + d_m*lags
+        self.lin_1 = nn.Linear(no_inputs, 256)
+        # self.lin_2 = nn.Linear(512, 512)
+        self.lin_3 = nn.Linear(256, d_m)
+
+    def forward(self, args, means= 0, stds = 1):
+        x = torch.cat(args, axis = 1)
+        x = F.relu(self.lin_1(x))
+        # x = F.relu(self.lin_2(x))
+        x = self.lin_3(x)
+        return x
+
+    
+class Simulator_NF(Env):
+    def __init__(self, number_of_units, action_d, state_d, device, continous_action = True, batch_size = 256, shuffle = True, lags = 5, means = 0, stds = 1):
+        self.number_of_units = number_of_units
+        self.action_d = action_d
+        self.state_d = state_d
+        self.device = device 
+        self.lags = lags
+        self.model = Simulator_net_NF(number_of_units, action_d, state_d, lags = lags, continous_action = continous_action, means = means, stds = stds)
+        self.model = self.model.to(self.device)
+        self.state = torch.zeros(1,lags*state_d).to(self.device)
+        self.batch_size = batch_size
+        self.shuffle = shuffle
+        self.continous_action = continous_action
+        self.means = means
+        self.stds = stds
+        self.means_m = None
+        self.stds_m = None
+
+    def step(self,action, unit = 0):
+        # get unit vector
+        units = torch.zeros([1,self.number_of_units], device = self.device)
+        units[0,unit] = 1
+        
+        if not self.continous_action:
+            action_ = torch.zeros([1,self.action_d]).to(self.device)
+            action_[0,action] =  1
+        else:
+            action_ = torch.tensor(action).to(self.device)
+        
+        new_state = self.model((units, action_, self.state))
+        old_state = self.state.clone()
+        self.state[0,self.state_d:] = old_state[0,:-self.state_d]
+        self.state[0,:self.state_d] = new_state
+        return self.state[0,:self.state_d], 0,0, 0
+
+
+    def reset(self, state):
+        old_state = self.state.clone()
+        self.state[0,self.state_d:] = old_state[0,:-self.state_d]
+        self.state[0,:self.state_d] = torch.tensor(state)
+        return self.state[0,:self.state_d]
+        
+    def train(self, data, learning_rate=1e-2, it=400):
+        # Parameters
+        params = {'batch_size': self.batch_size,
+                  'shuffle': self.shuffle}
+
+        learning_rate = learning_rate
+        iterations = it
+        optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)
+        if self.means_m is None:
+            self.means_m = torch.mean(data[2], 0)
+            self.stds_m = torch.std(data[2], 0)
+        data_ = [[data[0][i],data[1][i],data[2][i],data[3][i]] for i in range(len(data[0]))]
+        # data_loader 
+        data_loader = torch.utils.data.DataLoader(data_, **params)
+
+
+        loss_fn = torch.nn.MSELoss(reduction='mean')
+        for t in tqdm(range(iterations)):
+            # Training
+            for batch in data_loader:
+                # Forward pass
+                u_data, i_data,m_data, y_data = batch
+                # y_data = (y_data-self.means)/self.stds
+                #m_data = (m_data-self.mean)/self.stds
+                y_pred = self.model((u_data, i_data, m_data))
+
+                # Compute and print loss
+                
+                # Zero the gradients before running the backward pass
+                optimizer.zero_grad()
+                loss = loss_fn(y_pred, y_data)
+            
+                # Backward pass
+                loss.backward()
+                optimizer.step()
+            if (t+1)% 1000 == 0:
+              for g in optimizer.param_groups:
+                  g['lr'] = 0.5*g['lr']
+            if t % 10== 0:
+                    u_data, i_data,m_data, y_data = data
+
+                    # y_data = (y_data-self.means)/self.stds
+                    #m_data = (m_data-self.mean)/self.stds
+                    y_pred = self.model((u_data[:10000], i_data[:10000], m_data[:10000]))
+                    # Compute and print loss
+                    loss = loss_fn(y_pred, y_data[:10000])
+                    print(t, loss.item())
+
+                  
+    def save(self,save_path):
+        # with open(f'{save_path}.pkl', 'wb') as o:
+        #     pickle.dump(sim, o)
+
+        torch.save(self.model.state_dict(), f"{save_path}.pkl")
+        
+
+                
+            
+    def load(self, load_path):
+        print(f'load path {load_path}')
+        # with open(f'{load_path}.pkl', 'rb') as o:
+        #     sim =  pickle.load(o)  
+        # return sim 
+        self.model.load_state_dict(torch.load(f'{load_path}.pkl', map_location=self.device))
+            
+
+
 

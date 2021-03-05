@@ -1,1 +1,1 @@
-from .mpc_cem_multi import   MPC_M,DynamicsFunc, Rollouts
+from .mpc_cem import   MPC_M,DynamicsFunc, Rollouts
