@@ -84,10 +84,9 @@ class RolloutFunction:
 
         actions = Normal(means, stds).sample(sample_shape=(self._num_rollouts,))
         # assert_shape(actions, (self._num_rollouts, self._time_horizon, self._action_dimen))
-        # print(torch.abs(torch.max(actions,1)[0]))
         if self.max_action is not None:
             actions = actions.clip(-self.max_action, self.max_action)
-            #print(actions.max()) 
+    
         # One more state than the time horizon because of the initial state.
         trajectories = torch.empty((self._num_rollouts, self._time_horizon + 1, self._state_dimen),
                                    device=initial_states.device)
@@ -96,38 +95,15 @@ class RolloutFunction:
         dones = torch.zeros(( self._num_rollouts,), device=initial_states.device)
         # print(actions.shape)
         for t in range(self._time_horizon):
-            #for d,dynamic in enumerate(self._dynamics):
                 next_states, costs, done = self._dynamics.step(trajectories[:, t, :], actions[:, t, :])
                 # assert_shape(next_states, (self._num_rollouts, self._state_dimen))
                 # assert_shape(costs, (self._num_rollouts,))
                 trajectories[ :,t + 1, :] = next_states
                 dones[:] =  torch.maximum(done,dones[:])
                 objective_costs[t,:] = (gamma)**t*costs*(1-dones[:]) #+ dones[d,:]*100 
-        # objective_costs = torch.max(objective_costs,0)
-        # print(trajectories[:,:,:,:].shape)
-        #num_comparisons =  int(self.no_models * (self.no_models+1)/2)
-        """
-        distance = torch.zeros((num_comparisons, self._num_rollouts,), device=initial_states.device)
-        index = -1
-        for i in range(self.no_models):
-            for j in range(i+1, self.no_models):
-                index +=1
-                #distance[index,:]  = torch.square(trajectories[i,:,:,0] - trajectories[j,:,:,0]).mean(1)
-                distance[index,:] = torch.sqrt(torch.square(objective_costs[i,:] - objective_costs[j,:]))
-        distance =  torch.max(distance,0)[0]
-        """
-        #costs_var = torch.std(trajectories[:,:,10,0], 0)
-        #costs_mean = torch.median(trajectories[:,:,10,0], 0)[0]
-        #distance = costs_var/torch.abs(costs_mean)
-        #print(costs_var.shape, costs_mean.shape, distance.shape, distance)
-        #objective_costs = torch.mean(objective_costs,0)
+
         next_costs= objective_costs[0,:].clone()
         objective_costs = torch.sum(objective_costs,0)
-        #objective_costs = torch.max(objective_costs,0)[0]
-        #print('distance', distance.shape, distance)
-        #print('min',objective_costs.shape,  objective_costs.min(), objective_costs.max(), max(torch.median(distance).item(),10))    
-        #objective_costs[distance> 0.1] = 1000  #max(torch.median(distance).item(),0.5)] = 1000 
-        #print('min',objective_costs.shape,  objective_costs.min(), objective_costs.max())
 
         return trajectories[:,:,:], actions, objective_costs#, next_costs
 
@@ -170,9 +146,6 @@ class RolloutFunction:
             # objective_costs = torch.mean(objective_costs,1)#[0]
             objective_costs = torch.sum(objective_costs,0)
             
-            # objective_costs = torch.max(objective_costs,0)[0]
-            # print('min', objective_costs.min(), objective_costs.max())
-            # print('min', dones[:,:].sum(0), dones.min())
             return trajectories, actions, objective_costs
 
     
@@ -236,9 +209,7 @@ class MPC_M:
             #######################
             #perform CEM#
             #######################
-            # if self.mean is None:
             self.mean = torch.zeros((self._time_horizon, self._action_dimen), device=initial_state.device)
-            # print('init mean')
             
             means = self.mean
             init_stds = (1/3)*torch.ones((self._time_horizon, self._action_dimen), device=initial_state.device)
@@ -247,20 +218,11 @@ class MPC_M:
             lower_bound = -self.max_action
             upper_bound = self.max_action
             for i in range(self._num_iterations):
-                # var = torch.square(stds)
-                #lb_dist, ub_dist = means - lower_bound, upper_bound - means
-                #stds = torch.minimum(torch.minimum(lb_dist/2,ub_dist/2), stds) 
-                # print('stds', stds[0,:])
                 rollouts = self._rollout_function.perform_rollouts((initial_state, means, stds))
                 elite_rollouts = self._select_elites(rollouts)
                 means = elite_rollouts.actions.mean(dim=0)
-                # print('means', means[0,:])
-                #stds = elite_rollouts.actions.std(dim=0)
-                # print(stds.max(), stds.min())
-                # rollouts_by_iteration.append(rollouts)
-                # stds = (1/(i+3)) *torch.ones((self._time_horizon, self._action_dimen), device=initial_state.device)
                     
-            return elite_rollouts #, next_costs
+            return elite_rollouts 
 
     def _select_elites(self, rollouts: Rollouts) -> Rollouts:
         """Returns the elite rollouts.
@@ -284,28 +246,17 @@ class MPC_M:
         rollouts_by_iteration = self.optimize_trajectories(state)
 
         # Use the rollouts from the final optimisation step.
-        # min_rollout = [rollouts_.objective_costs.min() for rollouts_ in rollouts_by_iteration]
-        # print('min', min_rollout)
-        # rollouts = rollouts_by_iteration[np.argmin(min_rollout)]
         rollouts = rollouts_by_iteration
         
         
         costs, sorted_ids_of_feasible_ids = rollouts.objective_costs[:].sort()
-        #print(rollouts.objective_costs.shape)
         best_rollout_id = sorted_ids_of_feasible_ids[0].item()
         actions = rollouts.actions
         action = actions[best_rollout_id]
-        #print('next cost ', next_costs[best_rollout_id])
         if not self.disceret_action:  
-            #print(self.mean.shape, actions[best_rollout_id].shape)
-            self.mean[:-1,:] = actions[best_rollout_id][1:,:]
-            self.mean[:,:] = 0
-            #print('best action',rollouts.trajectories[best_rollout_id,:,0] )
             action = actions.mean(0)
-            # print(action.shape)
         else:
             self.previous_action = actions[best_rollout_id]
-            #print('best action',rollouts.trajectories[0,best_rollout_id,1,:] )
         
         return action, rollouts.objective_costs[best_rollout_id]
     
