@@ -31,9 +31,7 @@ class Dynamics(DynamicsFunc):
             rank = int(sim.split('_')[5])
             lag = int(sim.split('_')[4])
             delta = sim.split('_')[6][:5] == 'delta'
-            print(env_name, rank, lag, delta)
             self.delta = delta
-            print(state_dim, action_dim, N,N+action_dim+state_dim)
             self.sim_ = Simulator(N, action_dim, state_dim,rank , device, lags= lag, state_layers = state_layers[env_name], action_layers = action_layers[env_name], continous_action = not discerte_action, delta = delta)
             self.sim_.load(f'simulator/trained/{sim}')
             self.sims.append(self.sim_)
