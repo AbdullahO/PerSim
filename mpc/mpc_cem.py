@@ -165,7 +165,7 @@ class RolloutFunction:
     
             
             if self.mountain_car:
-                objective_costs = objective_costs - 0.01*torch.max(trajectories[:,:,0],2)[0]
+                objective_costs = objective_costs - 0.01*torch.max(trajectories[:,:,0],1)[0]
             
             # objective_costs = torch.mean(objective_costs,1)#[0]
             objective_costs = torch.sum(objective_costs,0)
