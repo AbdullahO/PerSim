@@ -16,9 +16,8 @@ from typing import Tuple
 from torch import Tensor
 
 class Dynamics(DynamicsFunc):
-    """Exact dynamics of the pendulum.
+    """
 
-    For this demo we assume we know the exact dynamics. These are taken from the Pendulum-v0 environment in OpenAI Gym.
     """
     def __init__(self, sims, env, discerte_action, N, unit, device ) -> Tuple[Tensor, Tensor]:
         self.env = env
@@ -418,7 +417,7 @@ mpc_parameters = { 'mountainCar':
 },
  'cartPole':
 {
-    'time_horizon':30, 'num_rollouts': 2000, "max_action": None
+    'time_horizon':50, 'num_rollouts': 1000, "max_action": None
 },
  'halfCheetah':
 {
