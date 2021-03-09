@@ -373,8 +373,8 @@ def eval_policy(simulators_, env_name, num_evaluations, device):
             
 
             sum_reward+=reward
-            if mountainCar and terminal_reward < mpc._rollout_function._time_horizon -5:
-               mpc._rollout_function._time_horizon = int(terminal_reward.item())+5
+#             if mountainCar and terminal_reward < mpc._rollout_function._time_horizon -5:
+#                mpc._rollout_function._time_horizon = int(terminal_reward.item())+5
             
             if i%50 ==0 :
                 print(f"Reward so far for agent {tt} ,  timestep {i} ,  {k}-th episode: {sum_reward}")
