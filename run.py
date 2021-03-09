@@ -462,7 +462,7 @@ for i in range(args.num_simulators):
   print(f'Train the {i}-th simulator')
   print('=='*10)
   filename = f'{args.dataname}_{args.lag}_{args.r}_{delta}_{i}_{args.trial}'
-  # train(args.dataname, args.env, args.r, device, normalize_state = args.normalize_state, normalize_output = args.normalize_output, iterations = 300, filename = filename)
+  train(args.dataname, args.env, args.r, device, normalize_state = args.normalize_state, normalize_output = args.normalize_output, iterations = 300, filename = filename)
   simulators.append(filename)
 
 
@@ -470,7 +470,7 @@ for i in range(args.num_simulators):
 print('=='*10)
 print(f'Test the prediction error for simulators')
 print('=='*10)
-# test_simulators_ens(simulators, args.env, device, args.num_episodes, T = 50)
+test_simulators_ens(simulators, args.env, device, args.num_episodes, T = 50)
 
 print('=='*10)
 print(f'Evaluate Average Reward via MPC')
