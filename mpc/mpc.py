@@ -134,10 +134,10 @@ class RolloutFunction:
                     trajectories[ d, :, t + 1, :] = next_states
                     dones[d, :] =  torch.maximum(done,dones[d, :])
                     objective_costs[d, t,:] = (gamma)**t*costs*(1-dones[d, :])
-    
             
             if self.mountain_car:
-                objective_costs = objective_costs - 0.01*torch.max(trajectories[:,:,0],1)[0]
+                for d in range(self.no_models):
+                  objective_costs = objective_costs - 0.01*torch.max(trajectories[d,:,:,0],1)[0]
             
             objective_costs = torch.mean(objective_costs,0)
         
