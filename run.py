@@ -19,21 +19,18 @@ class Dynamics(DynamicsFunc):
     """
 
     """
-    def __init__(self, sims, env, discerte_action, N, unit, device ) -> Tuple[Tensor, Tensor]:
+    def __init__(self, sim, env, discerte_action, N, unit, device ) -> Tuple[Tensor, Tensor]:
         self.env = env
-        self.sims = []
         if discerte_action:  action_dim = self.env.action_space.n
         else: action_dim = self.env.action_space.shape[0]
         state_dim = self.env.observation_space.shape[0]
-        for sim in sims:
-            env_name = sim.split('_')[0]
-            rank = int(sim.split('_')[5])
-            lag = int(sim.split('_')[4])
-            delta = sim.split('_')[6][:5] == 'delta'
-            self.delta = delta
-            self.sim_ = Simulator(N, action_dim, state_dim,rank , device, lags= lag, state_layers = state_layers[env_name], action_layers = action_layers[env_name], continous_action = not discerte_action, delta = delta)
-            self.sim_.load(f'simulator/trained/{sim}')
-            self.sims.append(self.sim_)
+        env_name = sim.split('_')[0]
+        rank = int(sim.split('_')[5])
+        lag = int(sim.split('_')[4])
+        delta = sim.split('_')[6][:5] == 'delta'
+        self.delta = delta
+        self.sim = Simulator(N, action_dim, state_dim,rank , device, lags= lag, state_layers = state_layers[env_name], action_layers = action_layers[env_name], continous_action = not discerte_action, delta = delta)
+        self.sim.load(f'simulator/trained/{sim}')
         self.N = N
         self.reward_fun = self.env.torch_reward_fn()
         self.done_fn = self.env.torch_done_fn()
@@ -46,13 +43,9 @@ class Dynamics(DynamicsFunc):
         if len(actions.shape) == 1:
             actions = actions.reshape(-1,1)
         
-        next_states = self.sims[0].step(states, actions, self.unit)[0]
-        for sim in self.sims[1:]:
-            next_states += sim.step(states, actions, self.unit)[0]
-        next_states = next_states/len(self.sims)
-        # print(states.shape, next_states.shape)
+        next_states = self.sim.step(states, actions, self.unit)[0]
         objective_cost = -1*self.reward_fun(states, actions, next_states)
-        dones = self.done_fn(next_states) #torch.zeros(states.shape[0], device = self.device)
+        dones = self.done_fn(next_states) 
         return next_states, objective_cost, dones 
 
 
@@ -357,8 +350,8 @@ def eval_policy(simulators_, env_name, num_evaluations, device):
         max_action = mpc_parameters[env_name]['max_action']
         mountainCar = env_name == 'mountainCar'
         
-        simulator = Dynamics(simulators_, env, discerte_action,N, tt, device)
-        mpc = MPC_M(dynamics_func=simulator, state_dimen=state_dimension, action_dimen=action_dimension,
+        simulators = [Dynamics(simulator, env, discerte_action,N, tt, device) for simulator in simulators_]
+        mpc = MPC_M(dynamics_func=simulators, state_dimen=state_dimension, action_dimen=action_dimension,
                             time_horizon=th, num_rollouts=num_rollouts, num_elites=num_elites, 
                             num_iterations=num_iterations, disceret_action = discerte_action, mountain_car = mountainCar, max_action = max_action)
         
@@ -394,7 +387,7 @@ def eval_policy(simulators_, env_name, num_evaluations, device):
                 res[j,:] = [k, tt, sum_reward ]
                 j+=1
                 sum_reward = 0
-                mpc = MPC_M(dynamics_func=simulator, state_dimen=state_dimension, action_dimen=action_dimension,
+                mpc = MPC_M(dynamics_func=simulators, state_dimen=state_dimension, action_dimen=action_dimension,
                             time_horizon=th, num_rollouts=num_rollouts, num_elites=num_elites, 
                             num_iterations=num_iterations, disceret_action = discerte_action, max_action = max_action, mountain_car = mountainCar)
 
@@ -469,7 +462,7 @@ for i in range(args.num_simulators):
   print(f'Train the {i}-th simulator')
   print('=='*10)
   filename = f'{args.dataname}_{args.lag}_{args.r}_{delta}_{i}_{args.trial}'
-  train(args.dataname, args.env, args.r, device, normalize_state = args.normalize_state, normalize_output = args.normalize_output, iterations = 300, filename = filename)
+  # train(args.dataname, args.env, args.r, device, normalize_state = args.normalize_state, normalize_output = args.normalize_output, iterations = 300, filename = filename)
   simulators.append(filename)
 
 
@@ -477,7 +470,7 @@ for i in range(args.num_simulators):
 print('=='*10)
 print(f'Test the prediction error for simulators')
 print('=='*10)
-test_simulators_ens(simulators, args.env, device, args.num_episodes, T = 50)
+# test_simulators_ens(simulators, args.env, device, args.num_episodes, T = 50)
 
 print('=='*10)
 print(f'Evaluate Average Reward via MPC')

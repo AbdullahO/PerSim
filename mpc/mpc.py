@@ -40,7 +40,7 @@ class RolloutFunction:
     def __init__(self, dynamics: list, state_dimen: int, action_dimen: int,
                  time_horizon: int, num_rollouts: int, num_actions = None,max_action = None, mountain_car = False):
         self._dynamics = dynamics
-        self.no_models = None# len(dynamics)
+        self.no_models = len(dynamics)
         self._state_dimen = state_dimen
         self._action_dimen = action_dimen
         self._time_horizon = time_horizon
@@ -79,14 +79,9 @@ class RolloutFunction:
 
         :returns: (sequence of states, sequence of actions, costs)
         """
-        # assert_shape(initial_states, (self._num_rollouts, self._state_dimen))
-        # assert_shape(means, (self._time_horizon, self._action_dimen))
-        # assert_shape(stds, (self._time_horizon, self._action_dimen))
 
         actions = Normal(means, stds).sample(sample_shape=(self._num_rollouts,))
-        # assert_shape(actions, (self._num_rollouts, self._time_horizon, self._action_dimen))
         if self.max_action is not None:
-            #actions_max = torch.max(torch.max(actions,1)[0],1)[0]
             indices = torch.abs(actions)>self.max_action
             while indices.sum()>0:
                 actions[indices] = Normal(means, stds).sample(sample_shape=(self._num_rollouts,))[indices]
@@ -95,56 +90,57 @@ class RolloutFunction:
             actions = actions.clip(-self.max_action, self.max_action)
 
         # One more state than the time horizon because of the initial state.
-        trajectories = torch.empty((self._num_rollouts, self._time_horizon + 1, self._state_dimen),
+        trajectories = torch.empty((self.no_models, self._num_rollouts, self._time_horizon + 1, self._state_dimen),
                                    device=initial_states.device)
-        trajectories[:,  0, :] = initial_states
-        objective_costs = torch.zeros(( self._time_horizon,self._num_rollouts,), device=initial_states.device)
-        dones = torch.zeros(( self._num_rollouts,), device=initial_states.device)
-        # print(actions.shape)
+        trajectories[:, :,  0, :] = initial_states
+        objective_costs = torch.zeros(( self.no_models, self._time_horizon,self._num_rollouts,), device=initial_states.device)
+        dones = torch.zeros((self.no_models, self._num_rollouts,), device=initial_states.device)
+        
         for t in range(self._time_horizon):
-                next_states, costs, done = self._dynamics.step(trajectories[:, t, :], actions[:, t, :])
-                # assert_shape(next_states, (self._num_rollouts, self._state_dimen))
-                # assert_shape(costs, (self._num_rollouts,))
-                trajectories[ :,t + 1, :] = next_states
-                dones[:] =  torch.maximum(done,dones[:])
-                objective_costs[t,:] = (gamma)**t*costs*(1-dones[:]) #+ dones[d,:]*100 
+            for d, dynamic in enumerate(self._dynamics):
+                next_states, costs, done = dynamic.step(trajectories[d, :, t, :], actions[:, t, :])
+                trajectories[d, :,t + 1, :] = next_states
+                dones[d, :] =  torch.maximum(done,dones[d, :])
+                objective_costs[d, t,:] = (gamma)**t*costs*(1-dones[d, :]) #+ dones[d,:]*100 
 
+        objective_costs = torch.mean(objective_costs,0)
         objective_costs = torch.sum(objective_costs,0)
 
-        return trajectories[:,:,:], actions, objective_costs
-        
+        return trajectories[0, :,:,:], actions, objective_costs
+
     def _sample_trajectory_disceret(self, initial_states: Tensor, previous_action ) -> Tuple[Tensor, Tensor, Tensor]:
             """Randomly samples T actions and computes the trajectory.
 
             :returns: (sequence of states, sequence of actions, costs)
             """
-            # assert_shape(initial_states, (self._num_rollouts, self._state_dimen))
             actions = categorical.Categorical(torch.ones(self.num_actions)/self.num_actions).sample(sample_shape=(self._num_rollouts,self._time_horizon,1))
             if previous_action is not None:
                 actions[0,:-1,0] = previous_action[1:self._time_horizon,0]
-            # assert_shape(actions, (self._num_rollouts, self._time_horizon, self._action_dimen))
-
+            
             # One more state than the time horizon because of the initial state.
-            trajectories = torch.empty((  self._num_rollouts, self._time_horizon + 1, self._state_dimen),
+            trajectories = torch.empty(( self.no_models,  self._num_rollouts, self._time_horizon + 1, self._state_dimen),
                                        device=initial_states.device)
-            trajectories[:, 0, :] = initial_states
-            objective_costs = torch.zeros((self._time_horizon, self._num_rollouts,), device=initial_states.device)
-            dones = torch.zeros((self._num_rollouts,), device=initial_states.device)
+            trajectories[:,: , 0, :] = initial_states
+            objective_costs = torch.zeros((self.no_models, self._time_horizon, self._num_rollouts,), device=initial_states.device)
+            dones = torch.zeros((self.no_models, self._num_rollouts,), device=initial_states.device)
 
             for t in range(self._time_horizon):
-                    next_states, costs, done = self._dynamics.step(trajectories[:, t, :], actions[:, t, 0])
+                for d, dynamic in enumerate(self._dynamics):
+                    next_states, costs, done = dynamic.step(trajectories[d, :, t, :], actions[:, t, 0])
 
                     # assert_shape(next_states, (self._num_rollouts, self._state_dimen))
                     # assert_shape(costs, (self._num_rollouts,))
                     
-                    trajectories[ :, t + 1, :] = next_states
-                    dones[:] =  torch.maximum(done,dones[:])
-                    objective_costs[t,:] = (gamma)**t*costs*(1-dones[:])
+                    trajectories[ d, :, t + 1, :] = next_states
+                    dones[d, :] =  torch.maximum(done,dones[d, :])
+                    objective_costs[d, t,:] = (gamma)**t*costs*(1-dones[d, :])
     
             
             if self.mountain_car:
                 objective_costs = objective_costs - 0.01*torch.max(trajectories[:,:,0],1)[0]
             
+            objective_costs = torch.mean(objective_costs,0)
+        
             objective_costs = torch.sum(objective_costs,0)
             
             return trajectories, actions, objective_costs
