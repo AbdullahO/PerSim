@@ -159,9 +159,9 @@ class Simulator(Env):
                 # Backward pass
                 loss.backward()
                 optimizer.step()
-            if (t+1)% 50 == 0:
+            if (t+1)% 150 == 0:
               for g in optimizer.param_groups:
-                  g['lr'] = 0.3*g['lr']
+                  g['lr'] = 0.5*g['lr']
             if t % 10== 0:
                     u_data, i_data,m_data, y_data = data
                     y_data = (y_data -self.model.means)/self.model.stds

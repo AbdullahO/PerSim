@@ -101,7 +101,7 @@ class HalfCheetahEnv(mujoco_env.MujocoEnv, utils.EzPickle):
     def torch_reward_fn(self):
         def _thunk(obs, act, next_obs):
             ctrl_cost = 1e-1  * torch.sum(torch.square(act), axis=-1)
-            forward_reward = obs[..., 0]
+            forward_reward = next_obs[..., 0]
             reward = forward_reward - ctrl_cost
             return reward
         return _thunk

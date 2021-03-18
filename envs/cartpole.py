@@ -176,10 +176,17 @@ class CartPoleEnv(gym.Env):
         return _thunk
 
     def torch_done_fn(self):
-        def _thunk(next_obs):
-            done =  torch.zeros(next_obs.shape[0], device = next_obs.device)
-            return done
-        return _thunk
+       def _thunk(next_obs):
+            x_threshold = 2.4
+            theta_threshold_radians = 12 * 2 * math.pi / 360
+            cond1 = next_obs[...,0] > x_threshold
+            cond2 = next_obs[...,0] < -x_threshold
+            cond3 = next_obs[...,2] > theta_threshold_radians
+            cond4 = next_obs[...,2] < -theta_threshold_radians
+            cond = cond1.int() +  cond2.int() + cond3.int() +cond4.int()
+            dones = (cond>=1).int()
+            return dones
+       return _thunk
      
 
     def reset(self, state = None):

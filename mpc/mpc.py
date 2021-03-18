@@ -57,9 +57,9 @@ class RolloutFunction:
         """
         initial_state, means, stds = args
         initial_states = initial_state.repeat((self._num_rollouts, 1))
-        trajectories, actions, objective_costs= self._sample_trajectory(initial_states, means, stds)
+        trajectories, actions, objective_costs, next_cost = self._sample_trajectory(initial_states, means, stds)
         
-        return Rollouts(trajectories, actions, objective_costs)
+        return Rollouts(trajectories, actions, objective_costs), next_cost
 
     def perform_rollouts_disceret(self, initial_state: Tensor, previous_action ) -> Rollouts:
         """Samples a trajectory, and returns the trajectory and the cost.
@@ -72,7 +72,7 @@ class RolloutFunction:
         trajectories, actions, objective_costs = self._sample_trajectory_disceret(initial_states, previous_action)
         # temp fix
         
-        return Rollouts(trajectories, actions, objective_costs)
+        return Rollouts(trajectories, actions, objective_costs), None
 
     def _sample_trajectory(self, initial_states: Tensor, means: Tensor, stds: Tensor) -> Tuple[Tensor, Tensor, Tensor]:
         """Randomly samples T actions and computes the trajectory.
@@ -83,6 +83,7 @@ class RolloutFunction:
         actions = Normal(means, stds).sample(sample_shape=(self._num_rollouts,))
         if self.max_action is not None:
             indices = torch.abs(actions)>self.max_action
+            #print(indices.shape, self._num_rollouts)
             while indices.sum()>0:
                 actions[indices] = Normal(means, stds).sample(sample_shape=(self._num_rollouts,))[indices]
                 indices = torch.abs(actions)>self.max_action
@@ -98,15 +99,17 @@ class RolloutFunction:
         
         for t in range(self._time_horizon):
             for d, dynamic in enumerate(self._dynamics):
-                next_states, costs, done = dynamic.step(trajectories[d, :, t, :], actions[:, t, :])
+                next_states, costs, done = dynamic.step(trajectories[:, :, t, :].mean(0), actions[:, t, :])
                 trajectories[d, :,t + 1, :] = next_states
                 dones[d, :] =  torch.maximum(done,dones[d, :])
                 objective_costs[d, t,:] = (gamma)**t*costs*(1-dones[d, :]) #+ dones[d,:]*100 
-
+                #if t == 0 : print(costs[:3])#, trajectories[:, :2, t, 0].mean(0))
+                
         objective_costs = torch.mean(objective_costs,0)
+        next_cost = objective_costs[0,:].clone()
         objective_costs = torch.sum(objective_costs,0)
 
-        return trajectories[0, :,:,:], actions, objective_costs
+        return trajectories[0, :,:,:], actions, objective_costs, next_cost
 
     def _sample_trajectory_disceret(self, initial_states: Tensor, previous_action ) -> Tuple[Tensor, Tensor, Tensor]:
             """Randomly samples T actions and computes the trajectory.
@@ -127,22 +130,20 @@ class RolloutFunction:
             for t in range(self._time_horizon):
                 for d, dynamic in enumerate(self._dynamics):
                     next_states, costs, done = dynamic.step(trajectories[d, :, t, :], actions[:, t, 0])
-
                     # assert_shape(next_states, (self._num_rollouts, self._state_dimen))
                     # assert_shape(costs, (self._num_rollouts,))
-                    
                     trajectories[ d, :, t + 1, :] = next_states
+                    #print(dones)
                     dones[d, :] =  torch.maximum(done,dones[d, :])
-                    objective_costs[d, t,:] = (gamma)**t*costs*(1-dones[d, :])
-            
+                    objective_costs[d, t,:] = (gamma)**t*costs*(1-dones[d,:])
+                    #print(dones.max()) 
             if self.mountain_car:
                 for d in range(self.no_models):
-                  objective_costs = objective_costs - 0.01*torch.max(trajectories[d,:,:,0],1)[0]
-            
+                    objective_costs[d,:,:] = objective_costs[d,:,:] - 0.01*torch.max(trajectories[d,:,:,0],1)[0]
+            #print(objective_costs.sum(1).min(1)[0])
             objective_costs = torch.mean(objective_costs,0)
-        
             objective_costs = torch.sum(objective_costs,0)
-            
+            #print(objective_costs.min())
             return trajectories, actions, objective_costs
 
     
@@ -199,8 +200,8 @@ class MPC_M:
             #######################
             #perform Shooting method#
             #######################
-            rollouts = self._rollout_function.perform_rollouts_disceret(initial_state, self.previous_action)
-            return rollouts
+            rollouts, _ = self._rollout_function.perform_rollouts_disceret(initial_state, self.previous_action)
+            return rollouts, None, None
                 
         else:
             #######################
@@ -210,25 +211,34 @@ class MPC_M:
                 self.mean = torch.zeros((self._time_horizon, self._action_dimen), device=initial_state.device)
             
             means = self.mean
-            init_stds = (1/2)*torch.ones((self._time_horizon, self._action_dimen), device=initial_state.device)
-            stds = init_stds.clone()
+            sigma = 0.3 + 0.3*np.random.random()
+            init_stds = sigma*torch.ones((self._time_horizon, self._action_dimen), device=initial_state.device)
             rollouts_by_iteration = []
             lower_bound = -self.max_action
             upper_bound = self.max_action
+            num_elites = self._num_elites
+            alpha = 0.1
+            rollouts , _= self._rollout_function.perform_rollouts((initial_state, means, init_stds))
+            elite_rollouts = self._select_elites(rollouts, num_elites)
+            means = elite_rollouts.actions.mean(dim=0)
+            stds = elite_rollouts.actions.std(dim=0)
             for i in range(self._num_iterations):
-                rollouts = self._rollout_function.perform_rollouts((initial_state, means, stds))
-                elite_rollouts = self._select_elites(rollouts)
-                means = elite_rollouts.actions.mean(dim=0)
-                stds = elite_rollouts.actions.std(dim=0)
-               
-            return elite_rollouts 
+                rollouts , next_costs= self._rollout_function.perform_rollouts((initial_state, means, stds))
+                elite_rollouts = self._select_elites(rollouts, num_elites)
+                new_means = elite_rollouts.actions.mean(dim=0)
+                new_stds = elite_rollouts.actions.std(dim=0)
+                means = means * alpha + (1 - alpha) * new_means
+                stds = stds * alpha + (1 - alpha) * new_stds 
 
-    def _select_elites(self, rollouts: Rollouts) -> Rollouts:
+    
+            return elite_rollouts, means, next_costs 
+
+    def _select_elites(self, rollouts: Rollouts, num_elites) -> Rollouts:
         """Returns the elite rollouts.
 
         """
         _, sorted_ids_of_feasible_ids = rollouts.objective_costs[:].squeeze().sort()
-        elites_ids = sorted_ids_of_feasible_ids[0:self._num_elites].squeeze()
+        elites_ids = sorted_ids_of_feasible_ids[0:num_elites].squeeze()
         #print(elites_ids, rollouts.objective_costs[elites_ids], rollouts.objective_costs.min())
         return Rollouts(rollouts.trajectories[elites_ids], rollouts.actions[elites_ids],
                         rollouts.objective_costs[elites_ids])
@@ -242,7 +252,7 @@ class MPC_M:
         :returns: (the actions [N x action dimen] or None if we didn't find a safe sequence of actions,
                    rollouts by iteration as returned by optimize_trajectories())
         """
-        rollouts_by_iteration = self.optimize_trajectories(state)
+        rollouts_by_iteration, means , next_costs= self.optimize_trajectories(state)
 
         # Use the rollouts from the final optimisation step.
         rollouts = rollouts_by_iteration
@@ -253,9 +263,10 @@ class MPC_M:
         actions = rollouts.actions
         action = actions[best_rollout_id]
         if not self.disceret_action:  
-            action = actions.mean(0)
-            self.mean[:-1,:] = action[1:,:]
-            self.mean[-1:,:] = 0
+            action = rollouts.actions.mean(0)
+            #print(action.shape)
+            self.mean[:-1,:] = means[1:,:]
+            self.mean[-1,:] = 0
         else:
             self.previous_action = actions[best_rollout_id]
         

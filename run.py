@@ -43,7 +43,7 @@ class Dynamics(DynamicsFunc):
         if len(actions.shape) == 1:
             actions = actions.reshape(-1,1)
         
-        next_states = self.sim.step(states, actions, self.unit)[0]
+        next_states = self.sim.step(states.clone(), actions, self.unit)[0]
         objective_cost = -1*self.reward_fun(states, actions, next_states)
         dones = self.done_fn(next_states) 
         return next_states, objective_cost, dones 
@@ -95,7 +95,7 @@ def test_simulator(simulator_name, env_name, device, num_episodes, T = 50):
         state_sim = torch.zeros([n_episodes, state_dim, T+1]).to(device)
         for i_episode in tqdm(range(n_episodes)):           
             env_ = env(**parameters)
-            actions = np.zeros(T+1)
+            #actions = np.zeros(T+1)
             total_reward = 0
             observation = env_.reset()
             done = False
@@ -177,8 +177,8 @@ def test_simulators_ens(simulators, env_name, device, num_episodes, T = 50):
         MSE =[]
         r2 =[] 
         parameters = dict(zip(env_config['covariates'],unit))
-        state_true = np.zeros([n_episodes, state_dim, T+1])
-        state_sim = torch.zeros([n_episodes, len(sims), state_dim, T+1]).to(device)
+        state_true = np.zeros([n_episodes, state_dim, T+11])
+        state_sim = torch.zeros([n_episodes, len(sims), state_dim, T+11]).to(device)
         print(parameters)
         for i_episode in tqdm(range(n_episodes)):           
             env_ = env(**parameters)
@@ -190,7 +190,7 @@ def test_simulators_ens(simulators, env_name, device, num_episodes, T = 50):
             state_sim[i_episode, :, :,i] = torch.tensor(observation).float().reshape(1,-1).to(device)
             state_true[i_episode, :,i] = observation
             i+=1
-            while i <T+1:
+            while i <T+11:
                 # random action
                 # action = env_.action_space.sample()
                 # test policy action
@@ -202,7 +202,7 @@ def test_simulators_ens(simulators, env_name, device, num_episodes, T = 50):
                   state_true[i_episode,:,i] = observation
                   action = torch.tensor([action]).reshape(1,-1).to(device)
                   for s, sim in enumerate(sims):
-                    if i > 0:
+                    if i > 10:
                         old_x0 = state_sim[i_episode, s, :,i-1].reshape(1,-1)
                     elif s == 0:
                         old_x0 = torch.tensor(old_x0).float().reshape(1,-1).to(device)
@@ -219,8 +219,9 @@ def test_simulators_ens(simulators, env_name, device, num_episodes, T = 50):
             
             state_sim_m = state_sim[i_episode,:,:,:].mean(axis = 0)
             #print(state_sim_m.shape)
-            mse = np.sqrt(np.nanmean(np.square(state_sim_m[:,:].cpu().detach().numpy() - state_true[i_episode,:,:])))
-            r2_ = r2_score(state_true[i_episode,:,:i].T, state_sim_m[:,:i].cpu().detach().numpy().T , multioutput = 'variance_weighted')
+            #print(i)
+            mse = np.sqrt(np.nanmean(np.square(state_sim_m[:,10:].cpu().detach().numpy() - state_true[i_episode,:,10:])))
+            r2_ = r2_score(state_true[i_episode,:,10:i].T, state_sim_m[:,10:i].cpu().detach().numpy().T , multioutput = 'variance_weighted')
             r2.append(r2_)
             MSE.append(mse)
         data.append([k,np.mean(MSE),np.std(MSE), np.mean(r2),np.median(r2), ])
@@ -321,7 +322,7 @@ def train(dataname,env, rank, device, delta = True, normalize_state = True, norm
 
     ## train  simulator
     sim = Simulator(N, action_dim, state_dim, rank, device, lags= lag, continous_action = not discerte_action, means_state = means_state, stds_state = stds_state,means = means, stds = stds, delta =delta, state_layers = state_layers[env], action_layers = action_layers[env], batch_size = batch_size[env])
-    sim.train([u_data, i_data, m_data[:,:state_dim*lag], y_data], it=iterations, learning_rate = 5e-3)
+    sim.train([u_data, i_data, m_data[:,:state_dim*lag], y_data], it=iterations, learning_rate =1e-3)
     sim.save(f'simulator/trained/{filename}')
     
 
@@ -341,6 +342,7 @@ def eval_policy(simulators_, env_name, num_evaluations, device):
     N = env_config['number_of_units']
     j = 0
     for tt, tests in enumerate(env_config['test_env'][:]):
+        #if tt != 3 and tt!= 3: continue
         parameters = dict(zip(env_config['covariates'],tests))
         env = env_config['env'](**parameters)
         th =  mpc_parameters[env_name]['time_horizon']
@@ -400,10 +402,10 @@ def eval_policy(simulators_, env_name, num_evaluations, device):
  
 ##### Fixed Parameters ####
 
-action_layers = {'mountainCar':[50], 'cartPole':[50], 'halfCheetah':[256,256]}
-batch_size = {'mountainCar':512, 'cartPole':128, 'halfCheetah':1024}
+action_layers = {'mountainCar':[50], 'cartPole':[50], 'halfCheetah':[512,512]}
+batch_size = {'mountainCar':512, 'cartPole':64, 'halfCheetah':1024}
 normalize = {'mountainCar':False, 'cartPole':False, 'halfCheetah':True}
-state_layers = {'mountainCar':[256], 'cartPole':[256], 'halfCheetah':[256,256,256,256]}
+state_layers = {'mountainCar':[256], 'cartPole':[256], 'halfCheetah':[512,512,512,512]}
 policy_class = {'mountainCar':'DQN', 'cartPole':'DQN', 'halfCheetah':'TD3', 'slimHumanoid':'TD3'}
 mpc_parameters = { 'mountainCar':
 {
@@ -426,7 +428,6 @@ parser.add_argument('--env', type=str,  default='mountainCar', help='choose envs
 parser.add_argument('--dataname', type=str,  default='mountainCar_random_0.0_0', help='choose envs to generate data for')
 parser.add_argument('--gpu', type=int, default=0, help='gpu device id')
 parser.add_argument('--trial', type=int,  default=0, help='trial number')
-
 parser.add_argument('--r', type=int,  default=3, help='tensor rank')
 parser.add_argument('--lag', type=int,default = 1, help='lag')
 parser.add_argument('--delta', dest='delta', action='store_true')
